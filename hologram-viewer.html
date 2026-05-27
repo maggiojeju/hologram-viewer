@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔮 3D 홀로그램 뷰어</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+KR:wght@300;400;700&display=swap');
+
+  :root {
+    --cyan: #00f5ff;
+    --purple: #b400ff;
+    --pink: #ff006e;
+    --bg: #000008;
+    --grid: rgba(0,245,255,0.07);
+    --panel: rgba(0,20,40,0.85);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: #fff;
+    font-family: 'Noto Sans KR', sans-serif;
+    min-height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 배경 그리드 */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* 코너 글로우 */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 0% 0%, rgba(0,245,255,0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at 100% 100%, rgba(180,0,255,0.08) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* 헤더 */
+  header {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid rgba(0,245,255,0.2);
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(10px);
+  }
+
+  .logo {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    color: var(--cyan);
+    text-shadow: 0 0 20px var(--cyan);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo span { color: #fff; }
+
+  .subtitle {
+    font-size: 0.72rem;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 0.08em;
+  }
+
+  /* 메인 레이아웃 */
+  main {
+    position: relative;
+    z-index: 5;
+    flex: 1;
+    display: flex;
+    gap: 0;
+    height: calc(100vh - 57px);
+  }
+
+  /* 3D 캔버스 영역 */
+  #canvas-wrap {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  canvas {
+    display: block;
+    cursor: grab;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  canvas:active { cursor: grabbing; }
+
+  /* 드롭존 */
+  #dropzone {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    transition: all 0.3s;
+  }
+
+  #dropzone.hidden { display: none; }
+
+  .drop-ring {
+    width: 180px;
+    height: 180px;
+    border: 2px dashed rgba(0,245,255,0.4);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    animation: spin-slow 8s linear infinite;
+  }
+
+  @keyframes spin-slow {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  .drop-ring::before {
+    content: '';
+    position: absolute;
+    inset: 8px;
+    border: 1px solid rgba(180,0,255,0.3);
+    border-radius: 50%;
+    animation: spin-slow 5s linear infinite reverse;
+  }
+
+  .drop-icon {
+    font-size: 3.5rem;
+    animation: spin-slow 8s linear infinite reverse;
+    filter: drop-shadow(0 0 15px var(--cyan));
+  }
+
+  .drop-text {
+    text-align: center;
+  }
+
+  .drop-text h2 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.1rem;
+    color: var(--cyan);
+    text-shadow: 0 0 15px var(--cyan);
+    margin-bottom: 8px;
+  }
+
+  .drop-text p {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.45);
+    line-height: 1.8;
+  }
+
+  .file-btn {
+    background: transparent;
+    border: 1px solid var(--cyan);
+    color: var(--cyan);
+    padding: 10px 28px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.72rem;
+    letter-spacing: 0.15em;
+    cursor: pointer;
+    transition: all 0.25s;
+    text-transform: uppercase;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .file-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--cyan);
+    transform: translateX(-100%);
+    transition: transform 0.25s;
+    z-index: -1;
+  }
+
+  .file-btn:hover { color: #000; }
+  .file-btn:hover::before { transform: translateX(0); }
+
+  #file-input { display: none; }
+
+  /* 드래그 오버 */
+  #canvas-wrap.drag-over #dropzone {
+    background: rgba(0,245,255,0.05);
+  }
+
+  #canvas-wrap.drag-over .drop-ring {
+    border-color: var(--cyan);
+    box-shadow: 0 0 40px rgba(0,245,255,0.3);
+  }
+
+  /* 오른쪽 컨트롤 패널 */
+  .panel {
+    width: 220px;
+    background: var(--panel);
+    border-left: 1px solid rgba(0,245,255,0.15);
+    backdrop-filter: blur(20px);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    overflow-y: auto;
+  }
+
+  .panel-section {
+    padding: 18px 18px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .panel-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.6rem;
+    letter-spacing: 0.2em;
+    color: rgba(0,245,255,0.6);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  /* 버튼들 */
+  .ctrl-btn {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 8px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.8);
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: 4px;
+  }
+
+  .ctrl-btn:hover {
+    background: rgba(0,245,255,0.08);
+    border-color: rgba(0,245,255,0.4);
+    color: var(--cyan);
+  }
+
+  .ctrl-btn.active {
+    background: rgba(0,245,255,0.12);
+    border-color: var(--cyan);
+    color: var(--cyan);
+    box-shadow: 0 0 12px rgba(0,245,255,0.2);
+  }
+
+  .ctrl-btn .icon { font-size: 1.1rem; }
+
+  /* 속도 슬라이더 */
+  .slider-wrap {
+    margin-top: 4px;
+  }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .slider-name {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.6);
+  }
+
+  .slider-val {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.68rem;
+    color: var(--cyan);
+  }
+
+  input[type=range] {
+    width: 100%;
+    height: 3px;
+    -webkit-appearance: none;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    outline: none;
+    margin-bottom: 14px;
+  }
+
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--cyan);
+    cursor: pointer;
+    box-shadow: 0 0 8px var(--cyan);
+  }
+
+  /* 색상 버튼들 */
+  .color-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .color-dot {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.2s;
+  }
+
+  .color-dot:hover, .color-dot.active {
+    border-color: #fff;
+    transform: scale(1.1);
+  }
+
+  /* 모델 정보 */
+  .model-info {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.4);
+    line-height: 1.8;
+  }
+
+  .model-info strong {
+    color: rgba(255,255,255,0.7);
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.82rem;
+  }
+
+  /* 하단 힌트 */
+  .hint-bar {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 20px;
+    background: rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.08);
+    padding: 8px 20px;
+    border-radius: 100px;
+    backdrop-filter: blur(10px);
+    z-index: 20;
+  }
+
+  .hint-bar.hidden { display: none; }
+
+  .hint {
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.4);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .hint kbd {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.15);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-family: monospace;
+  }
+
+  /* 로딩 */
+  #loading {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,8,0.9);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 50;
+    display: none;
+  }
+
+  .loading-ring {
+    width: 60px;
+    height: 60px;
+    border: 2px solid rgba(0,245,255,0.1);
+    border-top-color: var(--cyan);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .loading-text {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.75rem;
+    color: var(--cyan);
+    letter-spacing: 0.2em;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🔮 <span>HOLOGRAM</span> VIEWER</div>
+  <div class="subtitle">3D 모델 홀로그램 뷰어 · 회원가입 불필요</div>
+</header>
+
+<main>
+  <div id="canvas-wrap">
+    <canvas id="cv"></canvas>
+
+    <div id="dropzone">
+      <div class="drop-ring">
+        <div class="drop-icon">🛸</div>
+      </div>
+      <div class="drop-text">
+        <h2>3D 파일을 여기에 놓으세요</h2>
+        <p>STL · OBJ(ZIP) 파일 지원<br>Tinkercad → 내보내기 → STL 또는 OBJ</p>
+      </div>
+      <button class="file-btn" onclick="document.getElementById('file-input').click()">
+        📁 파일 선택하기
+      </button>
+      <input type="file" id="file-input" accept=".stl,.obj,.zip">
+    </div>
+
+    <div id="loading">
+      <div class="loading-ring"></div>
+      <div class="loading-text">LOADING MODEL...</div>
+    </div>
+
+    <div class="hint-bar hidden" id="hint-bar">
+      <div class="hint"><kbd>드래그</kbd> 회전</div>
+      <div class="hint"><kbd>휠</kbd> 확대/축소</div>
+      <div class="hint"><kbd>우클릭</kbd> 이동</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-section">
+      <div class="panel-label">⚡ 회전</div>
+      <button class="ctrl-btn" id="btn-auto" onclick="toggleAuto()">
+        <span class="icon">▶</span> 자동 회전 시작
+      </button>
+      <button class="ctrl-btn" onclick="resetView()">
+        <span class="icon">🎯</span> 정면으로 리셋
+      </button>
+      <div class="slider-wrap">
+        <div class="slider-row">
+          <span class="slider-name">회전 속도</span>
+          <span class="slider-val" id="speed-val">1.0</span>
+        </div>
+        <input type="range" id="speed" min="0.1" max="5" step="0.1" value="1"
+          oninput="updateSpeed(this.value)">
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">🌈 배경색</div>
+      <div class="color-grid">
+        <div class="color-dot active" style="background:#000008" onclick="setBg('#000008',this)" title="검정 (홀로그램)"></div>
+        <div class="color-dot" style="background:#0a0a1a" onclick="setBg('#0a0a1a',this)" title="딥 네이비"></div>
+        <div class="color-dot" style="background:#001a0a" onclick="setBg('#001a0a',this)" title="딥 그린"></div>
+        <div class="color-dot" style="background:#1a0010" onclick="setBg('#1a0010',this)" title="딥 퍼플"></div>
+        <div class="color-dot" style="background:#1a1a1a" onclick="setBg('#1a1a1a',this)" title="다크 그레이"></div>
+        <div class="color-dot" style="background:#f0f0f0" onclick="setBg('#f0f0f0',this)" title="라이트"></div>
+        <div class="color-dot" style="background:#e8f4f8" onclick="setBg('#e8f4f8',this)" title="스카이"></div>
+        <div class="color-dot" style="background:#ffffff" onclick="setBg('#ffffff',this)" title="흰색"></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">💡 조명</div>
+      <div class="slider-wrap">
+        <div class="slider-row">
+          <span class="slider-name">밝기</span>
+          <span class="slider-val" id="light-val">1.0</span>
+        </div>
+        <input type="range" id="light" min="0.1" max="3" step="0.1" value="1"
+          oninput="updateLight(this.value)">
+        <div class="slider-row">
+          <span class="slider-name">기울기</span>
+          <span class="slider-val" id="tilt-val">30°</span>
+        </div>
+        <input type="range" id="tilt" min="0" max="90" step="5" value="30"
+          oninput="updateTilt(this.value)">
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">📁 파일</div>
+      <button class="ctrl-btn" onclick="document.getElementById('file-input').click()">
+        <span class="icon">📂</span> 다른 파일 열기
+      </button>
+    </div>
+
+    <div class="panel-section" id="info-section" style="display:none">
+      <div class="panel-label">📐 모델 정보</div>
+      <div class="model-info" id="model-info"></div>
+    </div>
+  </div>
+</main>
+
+<!-- JSZip for OBJ zip extraction -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<!-- Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+// ── Scene Setup ──────────────────────────────────────────────
+const canvas = document.getElementById('cv');
+const wrap   = document.getElementById('canvas-wrap');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color('#000008');
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+camera.position.set(0, 1, 4);
+
+// Lights
+const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambient);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+dirLight.position.set(5, 8, 5);
+dirLight.castShadow = true;
+scene.add(dirLight);
+
+const fillLight = new THREE.DirectionalLight(0x8888ff, 0.3);
+fillLight.position.set(-5, 2, -3);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight(0x00ffff, 0.2);
+rimLight.position.set(0, -3, -5);
+scene.add(rimLight);
+
+// Resize
+function resize() {
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ── State ────────────────────────────────────────────────────
+let model = null;
+let autoRotate = false;
+let rotSpeed = 1.0;
+let lightIntensity = 1.0;
+let lightTilt = 30;
+
+// Mouse / touch orbit
+let isDown = false, isRight = false;
+let lastX = 0, lastY = 0;
+let rotX = 0.3, rotY = 0;
+let panX = 0, panY = 0;
+let zoom = 1;
+const pivot = new THREE.Group();
+scene.add(pivot);
+
+canvas.addEventListener('mousedown', e => {
+  isDown = true; isRight = e.button === 2;
+  lastX = e.clientX; lastY = e.clientY;
+});
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+window.addEventListener('mouseup', () => isDown = false);
+window.addEventListener('mousemove', e => {
+  if (!isDown || !model) return;
+  const dx = e.clientX - lastX;
+  const dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  if (isRight) {
+    panX += dx * 0.005;
+    panY -= dy * 0.005;
+  } else {
+    rotY += dx * 0.008;
+    rotX += dy * 0.008;
+    rotX = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotX));
+  }
+});
+canvas.addEventListener('wheel', e => {
+  zoom *= e.deltaY > 0 ? 1.1 : 0.91;
+  zoom = Math.max(0.1, Math.min(10, zoom));
+});
+
+// Touch
+let lastTouchX = 0, lastTouchY = 0;
+canvas.addEventListener('touchstart', e => {
+  lastTouchX = e.touches[0].clientX;
+  lastTouchY = e.touches[0].clientY;
+});
+canvas.addEventListener('touchmove', e => {
+  if (!model) return;
+  e.preventDefault();
+  const dx = e.touches[0].clientX - lastTouchX;
+  const dy = e.touches[0].clientY - lastTouchY;
+  lastTouchX = e.touches[0].clientX;
+  lastTouchY = e.touches[0].clientY;
+  rotY += dx * 0.01;
+  rotX += dy * 0.01;
+}, { passive: false });
+
+// ── Animate ──────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  if (model) {
+    if (autoRotate) rotY += 0.005 * rotSpeed;
+    pivot.rotation.x = rotX;
+    pivot.rotation.y = rotY;
+    pivot.position.set(panX, panY, 0);
+    camera.position.set(0, 0, 4 * zoom);
+    camera.lookAt(panX, panY, 0);
+  }
+  renderer.render(scene, camera);
+}
+animate();
+
+// ── Controls ─────────────────────────────────────────────────
+function toggleAuto() {
+  autoRotate = !autoRotate;
+  const btn = document.getElementById('btn-auto');
+  btn.classList.toggle('active', autoRotate);
+  btn.innerHTML = autoRotate
+    ? '<span class="icon">⏸</span> 자동 회전 중지'
+    : '<span class="icon">▶</span> 자동 회전 시작';
+}
+
+function resetView() {
+  rotX = 0.3; rotY = 0; panX = 0; panY = 0; zoom = 1;
+}
+
+function updateSpeed(v) {
+  rotSpeed = parseFloat(v);
+  document.getElementById('speed-val').textContent = parseFloat(v).toFixed(1);
+}
+
+function updateLight(v) {
+  lightIntensity = parseFloat(v);
+  dirLight.intensity = lightIntensity;
+  ambient.intensity = lightIntensity * 0.4;
+  document.getElementById('light-val').textContent = parseFloat(v).toFixed(1);
+}
+
+function updateTilt(v) {
+  lightTilt = parseInt(v);
+  const rad = (lightTilt * Math.PI) / 180;
+  dirLight.position.set(5 * Math.cos(rad), 8 * Math.sin(rad) + 2, 5);
+  document.getElementById('tilt-val').textContent = v + '°';
+}
+
+function setBg(color, el) {
+  scene.background = new THREE.Color(color);
+  document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ── STL / OBJ Loader ─────────────────────────────────────────
+function loadSTL(buffer) {
+  // STL parser (binary + ASCII)
+  const view = new DataView(buffer);
+  let geo;
+
+  // Check binary
+  if (buffer.byteLength > 84) {
+    const triangles = view.getUint32(80, true);
+    if (84 + triangles * 50 === buffer.byteLength) {
+      geo = parseBinarySTL(view, triangles);
+    }
+  }
+  if (!geo) {
+    const text = new TextDecoder().decode(buffer);
+    geo = parseAsciiSTL(text);
+  }
+
+  geo.computeVertexNormals();
+  geo.center();
+  geo.computeBoundingBox();
+
+  const size = new THREE.Vector3();
+  geo.boundingBox.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const scale = 2.5 / maxDim;
+
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x44aaff,
+    metalness: 0.3,
+    roughness: 0.5,
+    envMapIntensity: 1,
+  });
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.scale.setScalar(scale);
+  mesh.castShadow = true;
+
+  showModel(mesh, size, triangles || Math.floor(geo.attributes.position.count / 3));
+}
+
+function parseBinarySTL(view, triangles) {
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(triangles * 9);
+  const nor = new Float32Array(triangles * 9);
+  let offset = 84;
+  for (let i = 0; i < triangles; i++) {
+    const nx = view.getFloat32(offset, true);
+    const ny = view.getFloat32(offset+4, true);
+    const nz = view.getFloat32(offset+8, true);
+    offset += 12;
+    for (let v = 0; v < 3; v++) {
+      const base = i*9 + v*3;
+      pos[base]   = view.getFloat32(offset, true);
+      pos[base+1] = view.getFloat32(offset+4, true);
+      pos[base+2] = view.getFloat32(offset+8, true);
+      nor[base] = nx; nor[base+1] = ny; nor[base+2] = nz;
+      offset += 12;
+    }
+    offset += 2;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal',   new THREE.BufferAttribute(nor, 3));
+  return geo;
+}
+
+function parseAsciiSTL(text) {
+  const geo = new THREE.BufferGeometry();
+  const verts = [];
+  const re = /vertex\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    verts.push(parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]));
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
+  return geo;
+}
+
+// MTL 파서
+function parseMTL(text) {
+  const materials = {};
+  let current = null;
+  for (const raw of text.split('\n')) {
+    const parts = raw.trim().split(/\s+/);
+    if (parts[0] === 'newmtl') { current = parts[1]; materials[current] = new THREE.Color(0x44aaff); }
+    if (parts[0] === 'Kd' && current) materials[current] = new THREE.Color(parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3]));
+  }
+  return materials;
+}
+
+// OBJ + MTL 함께 로드
+function loadOBJ(objText, mtlText) {
+  const mtlColors = mtlText ? parseMTL(mtlText) : {};
+  const lines = objText.split('\n');
+  const positions = [], normals = [];
+  const groups = {};
+  let curMat = '__default__';
+
+  for (const raw of lines) {
+    const parts = raw.trim().split(/\s+/);
+    if (parts[0] === 'v')        positions.push(+parts[1], +parts[2], +parts[3]);
+    else if (parts[0] === 'vn')  normals.push(+parts[1], +parts[2], +parts[3]);
+    else if (parts[0] === 'usemtl') { curMat = parts[1] || '__default__'; }
+    else if (parts[0] === 'f') {
+      if (!groups[curMat]) groups[curMat] = { posIdx: [], norIdx: [] };
+      const face = parts.slice(1).map(p => p.split('/').map(Number));
+      for (let i = 1; i < face.length - 1; i++) {
+        for (const idx of [face[0], face[i], face[i+1]]) {
+          groups[curMat].posIdx.push(idx[0] - 1);
+          if (idx[2]) groups[curMat].norIdx.push(idx[2] - 1);
+        }
+      }
+    }
+  }
+
+  const allPos = [];
+  const group = new THREE.Group();
+  let totalTris = 0;
+
+  for (const [matName, { posIdx, norIdx }] of Object.entries(groups)) {
+    if (!posIdx.length) continue;
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(posIdx.length * 3);
+    for (let i = 0; i < posIdx.length; i++) {
+      pos[i*3]   = positions[posIdx[i]*3];
+      pos[i*3+1] = positions[posIdx[i]*3+1];
+      pos[i*3+2] = positions[posIdx[i]*3+2];
+      allPos.push(pos[i*3], pos[i*3+1], pos[i*3+2]);
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    if (norIdx.length === posIdx.length) {
+      const nor = new Float32Array(norIdx.length * 3);
+      for (let i = 0; i < norIdx.length; i++) {
+        nor[i*3] = normals[norIdx[i]*3]; nor[i*3+1] = normals[norIdx[i]*3+1]; nor[i*3+2] = normals[norIdx[i]*3+2];
+      }
+      geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    }
+    geo.computeVertexNormals();
+    const color = mtlColors[matName] || new THREE.Color(0x44aaff);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, metalness: 0.15, roughness: 0.6 }));
+    mesh.castShadow = true;
+    group.add(mesh);
+    totalTris += posIdx.length / 3;
+  }
+
+  const tempGeo = new THREE.BufferGeometry();
+  tempGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(allPos), 3));
+  tempGeo.computeBoundingBox();
+  const size = new THREE.Vector3();
+  tempGeo.boundingBox.getSize(size);
+  const center = new THREE.Vector3();
+  tempGeo.boundingBox.getCenter(center);
+
+  // 각 메시를 센터 기준으로 이동 (스케일 적용 전)
+  group.children.forEach(child => {
+    child.position.sub(center);
+  });
+
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  group.scale.setScalar(2.5 / maxDim);
+  showModel(group, size, Math.floor(totalTris));
+}
+
+function showModel(mesh, size, tris) {
+  if (model) {
+    pivot.remove(model);
+    model.traverse(obj => { if (obj.geometry) obj.geometry.dispose(); });
+  }
+  model = mesh;
+  pivot.add(model);
+  camera.position.set(0, 0, 4);
+  camera.lookAt(0, 0, 0);
+  resetView();
+
+  document.getElementById('dropzone').classList.add('hidden');
+  document.getElementById('hint-bar').classList.remove('hidden');
+  document.getElementById('info-section').style.display = 'block';
+  document.getElementById('model-info').innerHTML =
+    `<strong>${currentFileName}</strong>
+    삼각형: ${tris.toLocaleString()}개<br>
+    크기: ${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)}`;
+}
+
+// ── File Handling ─────────────────────────────────────────────
+let currentFileName = '';
+
+function handleFile(file) {
+  if (!file) return;
+  currentFileName = file.name;
+  const ext = file.name.split('.').pop().toLowerCase();
+  document.getElementById('loading').style.display = 'flex';
+
+  if (ext === 'stl') {
+    const reader = new FileReader();
+    reader.onload = e => {
+      document.getElementById('loading').style.display = 'none';
+      try { loadSTL(e.target.result); }
+      catch(err) { alert('STL 파일을 읽을 수 없어요. 다시 시도해주세요.'); }
+    };
+    reader.readAsArrayBuffer(file);
+
+  } else if (ext === 'obj') {
+    const reader = new FileReader();
+    reader.onload = e => {
+      document.getElementById('loading').style.display = 'none';
+      try { loadOBJ(e.target.result); }
+      catch(err) { alert('OBJ 파일을 읽을 수 없어요. 다시 시도해주세요.'); }
+    };
+    reader.readAsText(file);
+
+  } else if (ext === 'zip') {
+    // Tinkercad OBJ export comes as zip containing .obj + .mtl
+    JSZip.loadAsync(file).then(zip => {
+      const objFile = Object.values(zip.files).find(f => f.name.endsWith('.obj'));
+      const mtlFile = Object.values(zip.files).find(f => f.name.endsWith('.mtl'));
+      if (!objFile) {
+        document.getElementById('loading').style.display = 'none';
+        alert('ZIP 안에 OBJ 파일이 없어요.\nTinkercad에서 OBJ로 내보낸 ZIP 파일을 사용해주세요.');
+        return;
+      }
+      currentFileName = objFile.name;
+      const objPromise = objFile.async('string');
+      const mtlPromise = mtlFile ? mtlFile.async('string') : Promise.resolve(null);
+      Promise.all([objPromise, mtlPromise]).then(([objText, mtlText]) => {
+        document.getElementById('loading').style.display = 'none';
+        try { loadOBJ(objText, mtlText); }
+        catch(err) { alert('OBJ 파일을 읽을 수 없어요. 다시 시도해주세요.'); }
+      });
+    }).catch(() => {
+      document.getElementById('loading').style.display = 'none';
+      alert('ZIP 파일을 열 수 없어요. 다시 시도해주세요.');
+    });
+
+  } else {
+    document.getElementById('loading').style.display = 'none';
+    alert('STL, OBJ, 또는 ZIP(OBJ) 파일만 지원합니다.');
+  }
+}
+
+document.getElementById('file-input').addEventListener('change', e => {
+  handleFile(e.target.files[0]);
+});
+
+// Drag & Drop
+wrap.addEventListener('dragover', e => { e.preventDefault(); wrap.classList.add('drag-over'); });
+wrap.addEventListener('dragleave', () => wrap.classList.remove('drag-over'));
+wrap.addEventListener('drop', e => {
+  e.preventDefault();
+  wrap.classList.remove('drag-over');
+  handleFile(e.dataTransfer.files[0]);
+});
+</script>
+</body>
+</html>
